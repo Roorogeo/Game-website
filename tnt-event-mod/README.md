@@ -15,7 +15,7 @@ Server-side Fabric mod. Both commands can be used by **every** player, no OP nee
 Push to GitHub and open **Actions → Build TNT Event mod**, then download the `tnt-event-mod` artifact.
 Use `tnt-event-1.0.0.jar` (not the `-sources` jar).
 
-Or build locally (needs Java 25 and Gradle 9): `cd tnt-event-mod && gradle build` → `build/libs/`.
+Or build locally (needs Java 25 and Gradle 9.4+): `cd tnt-event-mod && gradle build` → `build/libs/`.
 
 ## Install
 Put the jar **and Fabric API** in the server's `mods/` folder. Players do not need the mod on their client.
