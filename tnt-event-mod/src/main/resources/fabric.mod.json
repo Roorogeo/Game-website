@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"id": "tnt-event",
+	"version": "${version}",
+	"name": "TNT Event",
+	"description": "Adds /tntexplode: every online player gets 30s of invincibility and 100 lit TNT dropped on them.",
+	"authors": ["roorogeo"],
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["com.tntevent.TntEventMod"]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
