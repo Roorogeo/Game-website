@@ -44,7 +44,7 @@ public final class EntitySpawner {
 		int types = 0;
 		for (EntityType<?> type : BuiltInRegistries.ENTITY_TYPE) {
 			// Skips players, fishing bobbers and anything else /summon refuses, plus disabled experimental mobs
-			if (type == EntityType.PLAYER || !type.canSummon() || !type.isEnabled(level.enabledFeatures())) {
+			if (!type.canSummon() || !type.isEnabled(level.enabledFeatures())) {
 				continue;
 			}
 			queue.add(new Job(level, center, type));
