@@ -49,10 +49,12 @@ public class TntEventMod implements ModInitializer {
 			dispatcher.register(Commands.literal("tntexplode").executes(ctx -> explode(ctx.getSource())));
 			dispatcher.register(Commands.literal("tntrain").executes(ctx -> startRain(ctx.getSource())));
 			dispatcher.register(Commands.literal("drain").executes(ctx -> drain(ctx.getSource())));
+			dispatcher.register(Commands.literal("spawnall").executes(ctx -> spawnAll(ctx.getSource())));
 		});
 
 		ServerTickEvents.END_SERVER_TICK.register(TntEventMod::tickRain);
 		ServerTickEvents.END_SERVER_TICK.register(WaterDrainer::tick);
+		ServerTickEvents.END_SERVER_TICK.register(EntitySpawner::tick);
 	}
 
 	private static int explode(CommandSourceStack source) {
@@ -79,6 +81,12 @@ public class TntEventMod implements ModInitializer {
 		int chunks = WaterDrainer.start(source.getServer());
 		source.sendSuccess(() -> Component.literal("Draining all water near players (" + chunks + " chunks)..."), true);
 		return chunks;
+	}
+
+	private static int spawnAll(CommandSourceStack source) {
+		int types = EntitySpawner.start(source.getLevel(), BlockPos.containing(source.getPosition()));
+		source.sendSuccess(() -> Component.literal("Spawning 100 of each of " + types + " entity types..."), true);
+		return types;
 	}
 
 	private static void tickRain(MinecraftServer server) {
