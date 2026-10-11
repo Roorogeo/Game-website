@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -13,6 +14,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.level.levelgen.Heightmap;
 
 import java.util.List;
 
@@ -24,8 +26,9 @@ public class TntEventMod implements ModInitializer {
 
 	// /tntrain
 	private static final int RAIN_TICKS = 60 * 20; // 60 seconds
-	private static final int RAIN_TNT_PER_PLAYER_PER_TICK = 1; // 20 TNT per second per player
-	private static final double RAIN_RADIUS = 12.0;
+	private static final int RAIN_TNT_PER_PLAYER_PER_TICK = 5; // 100 TNT per second per player
+	private static final double RAIN_RADIUS = 240.0;
+	// Height above the ground (not above the player) so it works on hills and in valleys
 	private static final double RAIN_MIN_HEIGHT = 15.0;
 	private static final double RAIN_MAX_HEIGHT = 25.0;
 	// Keep players protected until the last TNT that fell has gone off
@@ -39,9 +42,11 @@ public class TntEventMod implements ModInitializer {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			dispatcher.register(Commands.literal("tntexplode").executes(ctx -> explode(ctx.getSource())));
 			dispatcher.register(Commands.literal("tntrain").executes(ctx -> startRain(ctx.getSource())));
+			dispatcher.register(Commands.literal("drain").executes(ctx -> drain(ctx.getSource())));
 		});
 
 		ServerTickEvents.END_SERVER_TICK.register(TntEventMod::tickRain);
+		ServerTickEvents.END_SERVER_TICK.register(WaterDrainer::tick);
 	}
 
 	private static int explode(CommandSourceStack source) {
@@ -62,6 +67,12 @@ public class TntEventMod implements ModInitializer {
 		rainTicksLeft = RAIN_TICKS;
 		source.sendSuccess(() -> Component.literal("It's raining TNT for 60 seconds! Everyone is invincible until it stops."), true);
 		return 1;
+	}
+
+	private static int drain(CommandSourceStack source) {
+		int chunks = WaterDrainer.start(source.getServer());
+		source.sendSuccess(() -> Component.literal("Draining all water near players (" + chunks + " chunks)..."), true);
+		return chunks;
 	}
 
 	private static void tickRain(MinecraftServer server) {
@@ -113,14 +124,24 @@ public class TntEventMod implements ModInitializer {
 		ServerLevel level = (ServerLevel) player.level();
 		RandomSource random = level.getRandom();
 
-		// Random point in a circle around the player, high up in the sky
+		// Random point in a circle around the player
 		double angle = random.nextDouble() * Math.PI * 2;
 		double distance = Math.sqrt(random.nextDouble()) * RAIN_RADIUS;
-		double x = player.getX() + Math.cos(angle) * distance;
-		double z = player.getZ() + Math.sin(angle) * distance;
-		double y = player.getY() + RAIN_MIN_HEIGHT + random.nextDouble() * (RAIN_MAX_HEIGHT - RAIN_MIN_HEIGHT);
+		int x = (int) Math.floor(player.getX() + Math.cos(angle) * distance);
+		int z = (int) Math.floor(player.getZ() + Math.sin(angle) * distance);
 
-		PrimedTnt tnt = new PrimedTnt(level, x, y, z, player);
+		// Skip spots in unloaded chunks or past the simulation distance: TNT there would
+		// load chunks or just hang frozen in the air
+		BlockPos column = new BlockPos(x, player.getBlockY(), z);
+		if (!level.hasChunkAt(column) || !level.isPositionEntityTicking(column)) {
+			return;
+		}
+
+		int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+		double y = ground + RAIN_MIN_HEIGHT
+				+ random.nextDouble() * (RAIN_MAX_HEIGHT - RAIN_MIN_HEIGHT);
+
+		PrimedTnt tnt = new PrimedTnt(level, x + 0.5, y, z + 0.5, player);
 		// Long enough to land before exploding
 		tnt.setFuse(70 + random.nextInt(30));
 		level.addFreshEntity(tnt);
