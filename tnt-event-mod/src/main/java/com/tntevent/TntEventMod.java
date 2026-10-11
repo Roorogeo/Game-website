@@ -16,18 +16,24 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.level.levelgen.Heightmap;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class TntEventMod implements ModInitializer {
 	// /tntexplode
-	private static final int TNT_PER_PLAYER = 100;
+	private static final int TNT_PER_PLAYER = 1000;
 	private static final int INVINCIBLE_TICKS = 30 * 20; // 30 seconds
 	private static final double SPREAD = 3.0;
 
 	// /tntrain
 	private static final int RAIN_TICKS = 60 * 20; // 60 seconds
-	private static final int RAIN_TNT_PER_PLAYER_PER_TICK = 5; // 100 TNT per second per player
-	private static final double RAIN_RADIUS = 240.0;
+	// Once a second, every other block (checkerboard) within this radius of each player gets a TNT:
+	// roughly 1,600 TNT per second per player
+	private static final int RAIN_RADIUS = 32;
+	private static final int RAIN_WAVE_INTERVAL_TICKS = 20;
 	// Height above the ground (not above the player) so it works on hills and in valleys
 	private static final double RAIN_MIN_HEIGHT = 15.0;
 	private static final double RAIN_MAX_HEIGHT = 25.0;
@@ -80,14 +86,15 @@ public class TntEventMod implements ModInitializer {
 			return;
 		}
 
-		boolean refreshProtection = rainTicksLeft % 20 == 0 || rainTicksLeft == RAIN_TICKS;
-		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-			// Refresh every second so players who join mid-rain are covered too
-			if (refreshProtection) {
+		boolean newSecond = (RAIN_TICKS - rainTicksLeft) % RAIN_WAVE_INTERVAL_TICKS == 0;
+		if (newSecond) {
+			// Shared per wave so two players standing close together don't double up the TNT
+			Map<ServerLevel, Set<Long>> filled = new HashMap<>();
+			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+				// Refresh every second so players who join mid-rain are covered too
 				makeInvincible(player, rainTicksLeft + RAIN_PROTECTION_BUFFER_TICKS);
-			}
-			for (int i = 0; i < RAIN_TNT_PER_PLAYER_PER_TICK; i++) {
-				spawnRainTnt(player);
+				ServerLevel level = (ServerLevel) player.level();
+				spawnRainWave(player, level, filled.computeIfAbsent(level, l -> new HashSet<>()));
 			}
 		}
 
@@ -120,30 +127,36 @@ public class TntEventMod implements ModInitializer {
 		}
 	}
 
-	private static void spawnRainTnt(ServerPlayer player) {
-		ServerLevel level = (ServerLevel) player.level();
+	private static void spawnRainWave(ServerPlayer player, ServerLevel level, Set<Long> filled) {
 		RandomSource random = level.getRandom();
+		int centerX = player.getBlockX();
+		int centerZ = player.getBlockZ();
+		BlockPos.MutableBlockPos column = new BlockPos.MutableBlockPos();
 
-		// Random point in a circle around the player
-		double angle = random.nextDouble() * Math.PI * 2;
-		double distance = Math.sqrt(random.nextDouble()) * RAIN_RADIUS;
-		int x = (int) Math.floor(player.getX() + Math.cos(angle) * distance);
-		int z = (int) Math.floor(player.getZ() + Math.sin(angle) * distance);
+		for (int dx = -RAIN_RADIUS; dx <= RAIN_RADIUS; dx++) {
+			for (int dz = -RAIN_RADIUS; dz <= RAIN_RADIUS; dz++) {
+				int x = centerX + dx;
+				int z = centerZ + dz;
+				// Checkerboard in world coordinates, inside a circle around the player
+				if (((x + z) & 1) != 0 || dx * dx + dz * dz > RAIN_RADIUS * RAIN_RADIUS) {
+					continue;
+				}
 
-		// Skip spots in unloaded chunks or past the simulation distance: TNT there would
-		// load chunks or just hang frozen in the air
-		BlockPos column = new BlockPos(x, player.getBlockY(), z);
-		if (!level.hasChunkAt(column) || !level.isPositionEntityTicking(column)) {
-			return;
+				// Skip spots in unloaded chunks or past the simulation distance: TNT there would
+				// load chunks or just hang frozen in the air
+				column.set(x, player.getBlockY(), z);
+				if (!filled.add(BlockPos.asLong(x, 0, z)) || !level.hasChunkAt(column) || !level.isPositionEntityTicking(column)) {
+					continue;
+				}
+
+				int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
+				double y = ground + RAIN_MIN_HEIGHT + random.nextDouble() * (RAIN_MAX_HEIGHT - RAIN_MIN_HEIGHT);
+
+				PrimedTnt tnt = new PrimedTnt(level, x + 0.5, y, z + 0.5, player);
+				// Long enough to land before exploding
+				tnt.setFuse(70 + random.nextInt(30));
+				level.addFreshEntity(tnt);
+			}
 		}
-
-		int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
-		double y = ground + RAIN_MIN_HEIGHT
-				+ random.nextDouble() * (RAIN_MAX_HEIGHT - RAIN_MIN_HEIGHT);
-
-		PrimedTnt tnt = new PrimedTnt(level, x + 0.5, y, z + 0.5, player);
-		// Long enough to land before exploding
-		tnt.setFuse(70 + random.nextInt(30));
-		level.addFreshEntity(tnt);
 	}
 }
